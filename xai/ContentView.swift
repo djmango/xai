@@ -104,45 +104,63 @@ struct CustomTitleBar: View {
 
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
+    @State private var isHovering = false
+    @State private var isDragging = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            CustomTitleBar(title: "Grok")
+        ZStack {
+            // Background blur
+            VisualEffectView(material: colorScheme == .dark ? .hudWindow : .fullScreenUI, blendingMode: .behindWindow)
+                .edgesIgnoringSafeArea(.all)
             
-            ZStack {
-                // Apply a macOS visual effect layer with modern blur
-                VisualEffectView(material: colorScheme == .dark ? .hudWindow : .fullScreenUI, blendingMode: .behindWindow)
-                    .edgesIgnoringSafeArea(.all)
-                
-                // Embed the web content
-                WebView(url: URL(string: "https://grok.com")!)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 2)
-                    .padding([.horizontal, .bottom], 1) // Subtle border effect
+            // Web content
+            WebView(url: URL(string: "https://grok.com")!)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .shadow(color: Color.black.opacity(isHovering ? 0.3 : 0.2),
+                       radius: isHovering ? 12 : 8,
+                       x: 0,
+                       y: isHovering ? 4 : 2)
+                .padding(1)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(colorScheme == .dark ? 
+                            Color.black.opacity(isDragging ? 0.4 : 0.3) : 
+                            Color.white.opacity(isDragging ? 0.4 : 0.3))
+                        .blur(radius: 0.5)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(
+                            colorScheme == .dark ? 
+                                Color.white.opacity(isDragging ? 0.15 : 0.1) : 
+                                Color.black.opacity(isDragging ? 0.15 : 0.1),
+                            lineWidth: 0.5
+                        )
+                )
+                .padding(20) // Add some padding around the content
+        }
+        .frame(width: 800, height: 600) // Fixed size to match window
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovering = hovering
             }
         }
-        .background(colorScheme == .dark ? Color.black.opacity(0.7) : Color.white.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .onAppear {
-            print("ContentView appeared")
-            setupWindowAppearance()
-        }
-    }
-    
-    private func setupWindowAppearance() {
-        if let window = NSApplication.shared.windows.first {
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.isMovableByWindowBackground = true
-            
-            // Set window level to floating (like NSPanel)
-            window.level = .floating
-            
-            // Enable vibrancy
-            window.hasShadow = true
-        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isDragging = true
+                    }
+                    NSCursor.arrow.push()
+                }
+                .onEnded { _ in
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        isDragging = false
+                    }
+                    NSCursor.pop()
+                }
+        )
     }
 }
 

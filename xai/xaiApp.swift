@@ -8,50 +8,146 @@
 import SwiftUI
 import AppKit
 
-// Custom window style
-class CustomWindow: NSWindow {
-    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
-        super.init(contentRect: contentRect, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: backingStoreType, defer: flag)
-        
-        // Configure window appearance
-        self.titlebarAppearsTransparent = true
-        self.titleVisibility = .hidden
-        self.isMovableByWindowBackground = true
-        self.backgroundColor = .clear
-        self.isOpaque = false
-        self.hasShadow = true
-        
-        // Set the window level to floating (like NSPanel)
-        self.level = .floating
-        
-        // Round the corners
-        self.invalidateShadow()
+class InteractivePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    
+    override func cancelOperation(_: Any?) {
+        WindowManager.shared.hideWindow()
+    }
+    
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
     }
 }
 
-// Custom window scene style
-struct CustomWindowStyle: WindowStyle {
-    func makeWindow(windowScene: UIWindowScene) -> NSWindow {
-        let window = CustomWindow(
-            contentRect: .zero,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+class WindowManager {
+    static let shared = WindowManager()
+    
+    public var window: InteractivePanel?
+    private let animationDuration: TimeInterval = 0.2
+    private let defaultSize = NSSize(width: 800, height: 600)
+    
+    /// Whether the window is visible
+    public var windowIsVisible: Bool {
+        guard let window else { return false }
+        return window.isVisible && window.alphaValue > 0
+    }
+    
+    func setupWindow() {
+        let window = InteractivePanel(
+            contentRect: NSRect(origin: .zero, size: defaultSize),
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        return window
+        
+        // Configure window appearance
+        window.level = .mainMenu
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.hasShadow = true
+        window.isMovableByWindowBackground = true
+        
+        // Set window behavior
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        window.isFloatingPanel = true
+        
+        self.window = window
+        centerWindow()
+    }
+    
+    func showWindow() {
+        guard let window = self.window else { return }
+        window.alphaValue = 0
+        centerWindow()
+        
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = animationDuration
+            window.animator().alphaValue = 1
+        })
+    }
+    
+    func hideWindow() {
+        guard let window = self.window else { return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = animationDuration
+            window.animator().alphaValue = 0
+        }, completionHandler: {
+            window.orderOut(nil)
+        })
+    }
+    
+    func toggleWindow() {
+        guard let window = self.window else { return }
+        if window.alphaValue == 1 {
+            hideWindow()
+        } else {
+            showWindow()
+        }
+    }
+    
+    private func centerWindow() {
+        guard let window = self.window,
+              let screen = NSScreen.main else { return }
+        
+        let screenFrame = screen.visibleFrame
+        let windowFrame = window.frame
+        
+        let centerX = screenFrame.midX - windowFrame.width / 2
+        let centerY = screenFrame.midY - windowFrame.height / 2
+        
+        let centeredFrame = NSRect(
+            x: centerX,
+            y: centerY,
+            width: defaultSize.width,
+            height: defaultSize.height
+        )
+        
+        window.setFrame(centeredFrame, display: true, animate: true)
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
 @main
 struct xaiApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .frame(minWidth: 800, minHeight: 600)
-                .background(.clear)
+        Settings { }  // Empty settings scene to prevent automatic window creation
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        WindowManager.shared.setupWindow()
+        
+        // Set the content view
+        if let window = WindowManager.shared.window {
+            window.contentView = NSHostingView(rootView: ContentView())
+            WindowManager.shared.showWindow()
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
+        
+        // Set up observers for window activation
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
+    }
+    
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+        WindowManager.shared.showWindow()
+        return false
+    }
+    
+    @objc func windowDidBecomeKey(notification: Notification) {
+        // Handle window activation if needed
+    }
+    
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
+        false
     }
 }
